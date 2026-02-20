@@ -253,7 +253,7 @@ roc_df_mp <- rbind(
   data.frame(
     fpr   = 1 - roc_mp_rep$specificities,
     tpr   = roc_mp_rep$sensitivities,
-    model = paste0("Moneypuck replication (AUC = ", round(auc_test, 2), ")")
+    model = paste0("Moneypuck replication (AUC = ", round(auc_mp_rep, 2), ")")
     ),
   data.frame(
     fpr   = 1 - roc_mp$specificities,
