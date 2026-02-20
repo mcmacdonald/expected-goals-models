@@ -53,7 +53,7 @@ rtss <- hockeyR::load_pbp( # https://github.com/danmorse314/hockeyR-data/tree/ma
 )
 
 # don't run
-# this function also works ti load play-by-play from hockeyR repository
+# this function also works to load play-by-play from hockeyR repository
 # pbp <- hockeyR::load_pbp( # https://github.com/danmorse314/hockeyR-data/tree/main/data
 # season = 2010:2023
 # )
