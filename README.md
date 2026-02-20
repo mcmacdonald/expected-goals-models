@@ -1,4 +1,4 @@
-# expected-goals-models
+# expected goals (xG) models
 R code for replications of expected goals (xG) models in the public domain
 
 
