@@ -302,3 +302,50 @@ param_EN_10 <- list(objective = "binary:logistic",
 
 # close .R script
 
+
+
+
+
+# EV
+model_data_sparse_EV <- Matrix::Matrix(model_prep_EV, sparse = TRUE)
+is_goal_vect_EV      <- model_data_sparse_EV[, 1]
+predictors_EV        <- model_data_sparse_EV[, 2:ncol(model_data_sparse_EV)]
+full_xgb_EV          <- xgb.DMatrix(data = predictors_EV, label = is_goal_vect_EV)
+
+set.seed(556)
+xG_model_XGB_7_EV <- xgb.train(data = full_xgb_EV, params = param_7_EV, nround = 189, verbose = 2)
+saveRDS(xG_model_XGB_7_EV, "/~Desktop/xG_model_XGB_7_EV.rds")
+
+# UE
+model_data_sparse_UE <- Matrix::Matrix(model_prep_UE, sparse = TRUE)
+is_goal_vect_UE      <- model_data_sparse_UE[, 1]
+predictors_UE        <- model_data_sparse_UE[, 2:ncol(model_data_sparse_UE)]
+full_xgb_UE          <- xgb.DMatrix(data = predictors_UE, label = is_goal_vect_UE)
+
+set.seed(979)
+xG_model_XGB_7_UE <- xgb.train(data = full_xgb_UE, params = param_UE_7, nround = 167, verbose = 2)
+saveRDS(xG_model_XGB_7_UE, "/~Desktop/xG_model_XGB_7_UE.rds")
+
+# SH
+model_data_sparse_SH <- Matrix::Matrix(model_prep_SH, sparse = TRUE)
+is_goal_vect_SH      <- model_data_sparse_SH[, 1]
+predictors_SH        <- model_data_sparse_SH[, 2:ncol(model_data_sparse_SH)]
+full_xgb_SH          <- xgb.DMatrix(data = predictors_SH, label = is_goal_vect_SH)
+
+set.seed(347)
+xG_model_XGB_10_SH <- xgb.train(data = full_xgb_SH, params = param_SH_10, nround = 139, verbose = 2)
+saveRDS(xG_model_XGB_10_SH, "/~Desktop/xG_model_XGB_10_SH.rds")
+
+# EN
+model_data_sparse_EN <- Matrix::Matrix(model_prep_EN, sparse = TRUE)
+is_goal_vect_EN      <- model_data_sparse_EN[, 1]
+predictors_EN        <- model_data_sparse_EN[, 2:ncol(model_data_sparse_EN)]
+full_xgb_EN          <- xgb.DMatrix(data = predictors_EN, label = is_goal_vect_EN)
+
+set.seed(304)
+xG_model_XGB_10_EN <- xgb.train(data = full_xgb_EN, params = param_EN_10, nround = 275, verbose = 2)
+saveRDS(xG_model_XGB_10_EN, "/~Desktop/xG_model_XGB_10_EN.rds")
+
+
+
+
