@@ -32,7 +32,7 @@ roc_df_EH <- rbind(
   )
 
 # plot receiver operating characteristic (ROC) curve
-ggplot2::ggplot(roc_df, ggplot2::aes(x = fpr, y = tpr, colour = "firebrick1")) +
+ggplot2::ggplot(roc_df_EH, ggplot2::aes(x = fpr, y = tpr, colour = "firebrick1")) +
   ggplot2::geom_line(linewidth = 1) +
   ggplot2::geom_abline(slope = 1, intercept = 0, colour = "grey", linetype = "dashed") +
   ggplot2::scale_x_continuous(limits = c(0, 1)) +
@@ -40,7 +40,7 @@ ggplot2::ggplot(roc_df, ggplot2::aes(x = fpr, y = tpr, colour = "firebrick1")) +
   ggplot2::labs(
     x      = "False Positive Rate",
     y      = "True Positive Rate",
-    title  = "Evolving Hockey's xG Model ROC Curves",
+    title  = "Evolving Hockey's xG Model ROC Curve",
     colour = NULL
     ) +
   ggplot2::theme_classic() +
