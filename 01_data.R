@@ -44,6 +44,15 @@ rtss <- hockeyR::load_pbp( # https://github.com/danmorse314/hockeyR-data/tree/ma
 
 
 
+# call pipe locally
+`%>%` <- magrittr::`%>%`
+
+# recode season labels
+rtss <- rtss %>% dplyr::mutate(season = paste0(substr(season, 1, 4), "-", substr(season, 7, 8)))
+
+# set most recent season in the dataset as the reference group
+rtss$season <- relevel(factor(rtss$season), ref = "2022-23")
+
 # leg of the nhl season i.e., regular season or playoffs
 table(rtss$season_type, useNA = "always")
 
@@ -53,56 +62,70 @@ rtss <- rtss %>% dplyr::filter(season_type == "R" | season_type == "P")
 # drop shootouts during regular season, but retain extra playoffs
 rtss <- rtss %>% dplyr::filter(season_type == "R" & period < 5 | season_type == "P" & period < Inf)
 
-# recode season labels
-rtss <- rtss %>% dplyr::mutate(season = paste0(substr(season, 1, 4), "-", substr(season, 7, 8)))
+# top code period ... 5th period for extra over-time in the playoffs
+rtss$period[rtss$period >= 5] <- 5
 
-# rename column that indicates shot type
-rtss <- rtss %>% dplyr::rename(shot_type = secondary_type)
+# recode into factor
+rtss$period[rtss$period == 1] <- "1st"
+rtss$period[rtss$period == 2] <- "2nd"
+rtss$period[rtss$period == 3] <- "3rd"
+rtss$period[rtss$period == 4] <- "OT"
+rtss$period[rtss$period == 5] <- "OT+"
+
+# set regular season as the reference group
+rtss$period <- relevel(factor(rtss$period), ref = "1st")
+
+# set regular season as the reference group
+rtss$season_type <- relevel(factor(rtss$season_type), ref = "R")
 
 
 
-# recode
-rtss$strength[rtss$strength == "Short Handed"] <- "Shorthanded"
-
-# rename
+# rename case description of what happened
 rtss <- rtss %>% dplyr::rename(event_description = description)
 
-# rename shot coordinates
-rtss <- rtss %>% dplyr::rename(coords_x = x_fixed); rtss <- rtss %>% dplyr::rename(coords_y = y_fixed)
 
 
-# columns that list the home team and away team
-rtss <- rtss %>%
-  dplyr::group_by(game_id) %>%
-  dplyr::mutate(
-    home_team = event_team[event_team_type == "home"][1],
-    away_team = event_team[event_team_type == "away"][1]
-    ) %>%
-  dplyr::ungroup()
+# code whether prior shot was a rebound
+data.table::setDT(rtss)
+data.table::setorder(rtss, game_id, period, period_seconds)
 
-# rename variable in hockeyR's rtss scrape
-rtss <- rtss %>% dplyr::rename(shot_distance_hr = shot_distance)
+rtss[, `:=`(
+  prior_event_type    = data.table::shift(event_type),
+  prior_event_seconds = data.table::shift(period_seconds),
+  prior_event_saved   = data.table::shift(grepl("saved", tolower(event_description))),
+  seconds_since_last  = period_seconds - data.table::shift(period_seconds)
+), by = .(game_id, period)]
 
-# rename variable in hockeyR's rtss scrape
-rtss <- rtss %>% dplyr::rename(shot_angle_hr = shot_angle)
+rtss[, is_rebound := as.integer(
+  event_type == "SHOT" &
+    prior_event_type == "SHOT" &
+    prior_event_saved == TRUE &
+    seconds_since_last <= 5
+)]
+
+rtss[, time_since_rebound := data.table::fcase(
+  is_rebound == 1 & seconds_since_last <= 1, "1 second",
+  is_rebound == 1 & seconds_since_last <= 2, "2 seconds",
+  is_rebound == 1 & seconds_since_last <= 3, "3 seconds",
+  is_rebound == 1 & seconds_since_last <= 4, "4 seconds",
+  is_rebound == 1 & seconds_since_last <= 5, "5 seconds",
+  default = "no rebound"
+)]
+data.table::setDF(rtss)
+
+
+# set no rebound as the reference group
+rtss$time_since_rebound <- relevel(factor(rtss$time_since_rebound), ref = "no rebound")
 
 
 
 
 
-# ##### all syntax above this line is generic code common to the cleaning for all the replication models
-
-
-
-
-
-# define shot types used in model
+# define shot types used in model ----------------------------------------------
 fenwick <- c("SHOT", "MISSED_SHOT", "GOAL")
 
 # all types of shot cases
 rtss <- rtss %>% dplyr::filter(event_type %in% fenwick)
-
-
 
 
 
@@ -115,59 +138,36 @@ rtss <- is_goal(rtss)
 
 
 
-# function to create dummy for home team
-is_home <- function(df){
-  df$is_home <- ifelse(df$event_team_type == "home", 1 , 0)
-  return(df)
-}
-rtss <- is_home(rtss)
+# rename column that indicates shot type
+rtss <- rtss %>% dplyr::rename(shot_type = secondary_type)
 
-
-
-
-
-
-
-table(is.na(rtss$event_goalie_name), useNA = "always")
-
-
-rtss$event_goalie_name[is.na(rtss$event_goalie_name)] <- "empty net"
-
-rtss$event_goalie_name <- relevel(factor(rtss$event_goalie_name), ref = "empty net")
-
-rtss$event_player_1_name <- relevel(factor(rtss$event_player_1_name), ref = "Alex.Ovechkin")
-
-
-rtss$shooting_team <- ifelse(rtss$event_team == rtss$home_team, rtss$home_team, rtss$away_team)
-rtss$defending_team <- ifelse(rtss$event_team == rtss$home_team, rtss$away_team, rtss$home_team)
-
-
-
-rtss$shooting_team <- relevel(factor(rtss$shooting_team), ref = "Florida Panthers")
-rtss$defending_team <- relevel(factor(rtss$defending_team), ref = "Buffalo Sabres")
-
-
-
-# set regular season as the reference group
-rtss$season_type <- relevel(factor(rtss$season_type), ref = "R")
-
+# recode shot types
+rtss$shot_type[rtss$shot_type == "Between Legs"] <- "Trick Shot"; rtss$shot_type[rtss$shot_type == "Cradle"] <- "Trick Shot"
 
 # set wrist shot as the reference group
 rtss$shot_type <- relevel(factor(rtss$shot_type), ref = "Wrist Shot")
 
-# set most recent season in the dataset as the reference group
-rtss$season <- relevel(factor(rtss$season), ref = "2022-23")
 
 
+# rename shot coordinates
+rtss <- rtss %>% dplyr::rename(coords_x = x_fixed); rtss <- rtss %>% dplyr::rename(coords_y = y_fixed)
+
+# don't run
+# rename variable in hockeyR's rtss scrape
+# rtss <- rtss %>% dplyr::rename(shot_distance_hr = shot_distance)
 
 # calculate shot distancce
 rtss <- rtss %>%
   dplyr::mutate(
     shot_distance = ifelse(abs(coords_x) > 89,
-      sqrt((abs(coords_x) - 89)^2 + coords_y^2),
-        sqrt((89 - abs(coords_x))^2 + coords_y^2)
-        )
+                           sqrt((abs(coords_x) - 89)^2 + coords_y^2),
+                           sqrt((89 - abs(coords_x))^2 + coords_y^2)
+                           )
     )
+
+# don't run
+# rename variable in hockeyR's rtss scrape
+# rtss <- rtss %>% dplyr::rename(shot_angle_hr = shot_angle)
 
 # calculate the shot angle
 rtss <- rtss %>%
@@ -176,37 +176,67 @@ rtss <- rtss %>%
     )
 
 
+
+# don't run
+# shot at even strength, on power play, or shorthanded? 
+# table(rtss$strength, useNA = "always")
+
+
+# recode lone case 
+rtss$strength[rtss$strength == "Short Handed"] <- "Shorthanded"
+
+# 
+table(rtss$event_goalie_name[rtss$event_type == "SHOT"], useNA = "always")
+
+# empty net shots 
+rtss$empty_net <- 0
+rtss$empty_net[is.na(rtss$event_goalie_name) & rtss$event_type == "SHOT"] <- 1
+rtss$empty_net[is.na(rtss$event_goalie_name) & rtss$event_type == "GOAL"] <- 1
+
+
+
 # control for shots with man advantage
 rtss$manadv <- rtss$home_skaters - rtss$away_skaters
 # top code at +/-3 differential because 6v3 is the only realistic scenario 
 rtss$manadv[rtss$manadv <= -3] <- -3
 rtss$manadv[rtss$manadv >=  3] <-  3
-
-
-# top code period ... top code the 5th period for extra over-time in the playoffs
-rtss$period[rtss$period >= 5] <- 5
-
-
-# control for last thing that happened before the shot
+# code as factor, with even strength as the reference
+rtss$manadv <- relevel(factor(rtss$manadv), ref = "0")
 
 
 
-# function to create dummy for a shot off a rebound
-is_rebound <- function(df){
-  df$is_rebound <- ifelse(df$event_type == "GOAL", 1 , 0)
+# columns that list the home team and away team
+rtss <- rtss %>%
+  dplyr::group_by(game_id) %>%
+  dplyr::mutate(
+    home_team = event_team[event_team_type == "home"][1],
+    away_team = event_team[event_team_type == "away"][1]
+  ) %>%
+  dplyr::ungroup()
+
+# function to create dummy for home team
+is_home <- function(df){
+  df$is_home <- ifelse(df$event_team_type == "home", 1 , 0)
   return(df)
 }
-rtss <- is_rebound(rtss)
+rtss <- is_home(rtss)
+
+# shooting team
+rtss$shooting_team <- ifelse(rtss$event_team == rtss$home_team, rtss$home_team, rtss$away_team)
+rtss$shooting_team <- relevel(factor(rtss$shooting_team), ref = "Florida Panthers")
+
+# defending tea <- m
+rtss$defending_team <- ifelse(rtss$event_team == rtss$home_team, rtss$away_team, rtss$home_team)
+rtss$defending_team <- relevel(factor(rtss$defending_team), ref = "Buffalo Sabres")
 
 
 
+# table(is.na(rtss$event_goalie_name), useNA = "always")
 
+# rtss$event_goalie_name[is.na(rtss$event_goalie_name)] <- "empty net"
+# rtss$event_goalie_name <- relevel(factor(rtss$event_goalie_name), ref = "empty net")
 
-
-
-# end .R script
-
-
+# rtss$event_player_1_name <- relevel(factor(rtss$event_player_1_name), ref = "Alex.Ovechkin")
 
 
 
@@ -215,10 +245,10 @@ rtss <- is_rebound(rtss)
 
 # calculate the baseline probability of a goal for any shot taken at random
 null <- stats::glm(
-  goal ~ 1 + factor(season), # seasonality
+  is_goal ~ 1 + factor(season), # seasonality
   family = stats::binomial(), 
-  data = mp_shots
-)
+  data = rtss
+  )
 
 # function to calculate the predicted probabilty
 inv_logit <- function(b){
@@ -228,6 +258,29 @@ inv_logit(null$coefficients[[1]])
 
 
 
+
+
+# estimate xG model ------------------------------------------------------------
+xG <- stats::glm(
+  formula = is_goal ~ 
+    # fixed effects
+    poly(shot_distance, degree = 2, raw = TRUE) + 
+    poly(shot_angle, degree = 2, raw = TRUE) + 
+    shot_type +
+    is_rebound + 
+    # time_since_rebound +
+    manadv +
+    empty_net +
+    period +
+    season_type +
+    season,
+  family = stats::binomial(),
+  data   = rtss
+  )
+summary(xG)
+
+# prediction
+roc_xG <- pROC::roc(xG$y, xG$fitted.values); pROC::auc(roc_xG)
 
 
 
@@ -240,7 +293,9 @@ xG <- brms::brm(
     poly(shot_angle, degree = 2, raw = TRUE) + 
     as.factor(shot_type) +
     as.factor(is_rebound) + 
-    manadv +
+    as.factor(time_since_rebound) +
+    as.factor(manadv) +
+    as.factor(empty_net) +
     as.factor(period) +
     as.factor(season_type) +
     as.factor(season),
@@ -252,15 +307,11 @@ xG <- brms::brm(
   warmup = 100,
   prior  = c(
     brms::prior(normal(0, 1), class = b),
-    brms::prior(normal(0, 1), class = Intercept),
-    brms::prior(exponential(1), class = sd)
+    brms::prior(normal(0, 1), class = Intercept)
+    # brms::prior(exponential(1), class = sd)
   )
 )
 summary(xG)
-
-
-
-
 
 
 # random effects
