@@ -8,7 +8,7 @@ This repository includues R code to replicate three different xG models:
 2) Evolving Hockey's xG models for even strength, man advantage, short-handed, empty net shots - gradient boosting (XGBoost)
 3) Matthew Barlowe's xG model - logistic regression
 
-I evaluate the models on a common held-out test season to permit direct comparison of model performance. [I plot ROC curves that compare the predictions of the different models](https://github.com/mcmacdonald/expected-goals-models/blob/main/xG_02.png). I also include Dan Morse's (hockeyR) xG model predictions that use gradient boosting (XGBoost) for comparison.
+[I plot ROC curves that compare the predictions of the different models](https://github.com/mcmacdonald/expected-goals-models/blob/main/xG_02.png). I also include Dan Morse's (hockeyR) xG model predictions that use gradient boosting (XGBoost) for comparison.
 
 The rationale to doing so is to compare the performance of different xG models, which, together, provide clear benchmarks for further refinement of an xG model.
 
