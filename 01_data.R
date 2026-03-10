@@ -2,9 +2,8 @@
 
 
 # this .r script prepares the data for an xG model
-
 # required packages
-require(hockeyR); require(tidyverse); require(ggplot2); require(sportyR); require(pROC)
+require(hockeyR); require(tidyverse); require(data.table)
 
 
 
@@ -50,6 +49,9 @@ rtss <- hockeyR::load_pbp( # https://github.com/danmorse314/hockeyR-data/tree/ma
 # recode season labels
 rtss <- rtss %>% dplyr::mutate(season = paste0(substr(season, 1, 4), "-", substr(season, 7, 8)))
 
+# drop lockout shortened and pandemic shortened seasons
+rtss <- rtss %>% dplyr::filter(season != "2012-13" & season != "2019-20")
+
 # set most recent season in the dataset as the reference group
 rtss$season <- relevel(factor(rtss$season), ref = "2022-23")
 
@@ -94,14 +96,15 @@ rtss[, `:=`(
   prior_event_seconds = data.table::shift(period_seconds),
   prior_event_saved   = data.table::shift(grepl("saved", tolower(event_description))),
   seconds_since_last  = period_seconds - data.table::shift(period_seconds)
-), by = .(game_id, period)]
+  ), 
+  by = .(game_id, period)]
 
 rtss[, is_rebound := as.integer(
   event_type == "SHOT" &
     prior_event_type == "SHOT" &
     prior_event_saved == TRUE &
     seconds_since_last <= 5
-)]
+    )]
 
 rtss[, time_since_rebound := data.table::fcase(
   is_rebound == 1 & seconds_since_last <= 1, "1 second",
@@ -110,7 +113,7 @@ rtss[, time_since_rebound := data.table::fcase(
   is_rebound == 1 & seconds_since_last <= 4, "4 seconds",
   is_rebound == 1 & seconds_since_last <= 5, "5 seconds",
   default = "no rebound"
-)]
+  )]
 data.table::setDF(rtss)
 
 
@@ -185,7 +188,7 @@ rtss <- rtss %>%
 # recode lone case 
 rtss$strength[rtss$strength == "Short Handed"] <- "Shorthanded"
 
-# 
+# print cases
 table(rtss$event_goalie_name[rtss$event_type == "SHOT"], useNA = "always")
 
 # empty net shots 
@@ -197,9 +200,11 @@ rtss$empty_net[is.na(rtss$event_goalie_name) & rtss$event_type == "GOAL"] <- 1
 
 # control for shots with man advantage
 rtss$manadv <- rtss$home_skaters - rtss$away_skaters
+
 # top code at +/-3 differential because 6v3 is the only realistic scenario 
 rtss$manadv[rtss$manadv <= -3] <- -3
 rtss$manadv[rtss$manadv >=  3] <-  3
+
 # code as factor, with even strength as the reference
 rtss$manadv <- relevel(factor(rtss$manadv), ref = "0")
 
@@ -231,255 +236,84 @@ rtss$defending_team <- relevel(factor(rtss$defending_team), ref = "Buffalo Sabre
 
 
 
-# table(is.na(rtss$event_goalie_name), useNA = "always")
+# function to calculate the week of the season
+week_of_season <- function(df){
+    df <- df %>%
+      dplyr::group_by(season) %>%
+      dplyr::mutate(
+        season_start   = min(as.Date(game_date)),
+        week_of_season = as.integer(difftime(as.Date(game_date), season_start, units = "weeks")) + 1
+      ) %>%
+      dplyr::ungroup() %>%
+      dplyr::select(-season_start)
+    return(df)
+  }
 
+rtss <- week_of_season(rtss)
+
+
+# score differential for shooting team 
+score_diff <- function(df){
+  df$score_diff <- ifelse(
+    df$shooting_team == df$home_team,
+    df$home_score - df$away_score,
+    df$away_score - df$home_score
+    )
+  return(df)
+}
+rtss <- score_diff(rtss)               
+                            
+
+
+# divsion matchup / rivalry
+rtss$division_matchup <- 0
+rtss$division_matchup[rtss$home_division_name == rtss$away_division_name] <- 1
+
+
+
+# prior event before the shot
+table(rtss$prior_event_type)
+
+# don't run
+# manually check observations 
+# obs_to_check <- rtss %>% dplyr::filter(prior_event_type == "GAME_END" | prior_event_type == "GAME_SCHEDULED")
+
+# recode last play to face off given that all these categories indicate play stoppage and faceoff must happen for play to start again
+rtss$prior_event_type[rtss$prior_event_type == "GOAL"] <- "FACEOFF"
+rtss$prior_event_type[rtss$prior_event_type == "STOP"] <- "FACEOFF"
+rtss$prior_event_type[rtss$prior_event_type == "PENALTY"] <- "FACEOFF"
+rtss$prior_event_type[rtss$prior_event_type == "CHALLENGE"] <- "FACEOFF"
+rtss$prior_event_type[rtss$prior_event_type == "EARLY_INT_END"] <- "FACEOFF"
+rtss$prior_event_type[rtss$prior_event_type == "EARLY_INT_START"] <- "FACEOFF"
+rtss$prior_event_type[rtss$prior_event_type == "GAME_END"] <- "FACEOFF"
+rtss$prior_event_type[rtss$prior_event_type == "GAME_SCHEDULED"] <- "FACEOFF"
+
+# set shot on net as the reference group
+rtss$prior_event_type <- relevel(factor(rtss$prior_event_type), ref = "SHOT")
+
+
+
+# high danger scoring chance -- 20 feet from goal line is hash marks
+rtss$high_danger <- as.integer(rtss$shot_distance <= 20 & rtss$shot_angle <= 45)
+
+
+
+
+# don't run
+# goalie effexts 
+# table(is.na(rtss$event_goalie_name), useNA = "always")
 # rtss$event_goalie_name[is.na(rtss$event_goalie_name)] <- "empty net"
 # rtss$event_goalie_name <- relevel(factor(rtss$event_goalie_name), ref = "empty net")
 
+
+
+# don't run
+# player effects
+# table(tss$event_player_1_name, useNA = "always")
 # rtss$event_player_1_name <- relevel(factor(rtss$event_player_1_name), ref = "Alex.Ovechkin")
 
 
 
 
 
-
-# calculate the baseline probability of a goal for any shot taken at random
-null <- stats::glm(
-  is_goal ~ 1 + factor(season), # seasonality
-  family = stats::binomial(), 
-  data = rtss
-  )
-
-# function to calculate the predicted probabilty
-inv_logit <- function(b){
-  exp(b)/(1+exp(b))
-}
-inv_logit(null$coefficients[[1]])
-
-
-
-
-
-# estimate xG model ------------------------------------------------------------
-xG <- stats::glm(
-  formula = is_goal ~ 
-    # fixed effects
-    poly(shot_distance, degree = 2, raw = TRUE) + 
-    poly(shot_angle, degree = 2, raw = TRUE) + 
-    shot_type +
-    is_rebound + 
-    # time_since_rebound +
-    manadv +
-    empty_net +
-    period +
-    season_type +
-    season,
-  family = stats::binomial(),
-  data   = rtss
-  )
-summary(xG)
-
-# prediction
-roc_xG <- pROC::roc(xG$y, xG$fitted.values); pROC::auc(roc_xG)
-
-
-
-
-# basic Bayesian hierarchical xG model
-xG <- brms::brm(
-  formula = is_goal ~ 
-    # fixed effects
-    poly(shot_distance, degree = 2, raw = TRUE) + 
-    poly(shot_angle, degree = 2, raw = TRUE) + 
-    as.factor(shot_type) +
-    as.factor(is_rebound) + 
-    as.factor(time_since_rebound) +
-    as.factor(manadv) +
-    as.factor(empty_net) +
-    as.factor(period) +
-    as.factor(season_type) +
-    as.factor(season),
-  data   = rtss,
-  family = brms::bernoulli(link = "logit"),
-  chains = 4,
-  cores  = 4,
-  iter   = 250,
-  warmup = 100,
-  prior  = c(
-    brms::prior(normal(0, 1), class = b),
-    brms::prior(normal(0, 1), class = Intercept)
-    # brms::prior(exponential(1), class = sd)
-  )
-)
-summary(xG)
-
-
-# random effects
-(1 | event_goalie_name) +
-  (1 | event_player_1_name) +
-  (1 | shooting_team) +
-  (1 | defending_team)
-
-
-# estimate xG model ---------------------------------------------------------------------------
-xGmodel_mb <- stats::glm(
-  is_goal ~ poly(distance, 3, raw = TRUE) + 
-    poly(shot_angle, 3, raw = TRUE) + 
-    as.factor(shot_type) + 
-    as.factor(strength) +
-    is_rebound + is_rush,
-  data = rtss, 
-  family = binomial(link = 'logit')
-)
-summary(xGmodel_mb)
-
-
-
-
-
-# get posterior predicted probabilities
-pred_probs <- brms::posterior_epred(xg_bayes, newdata = rtss)
-
-# average across draws to get mean predicted probability per observation
-mean_probs <- colMeans(pred_probs)
-
-# compute ROC and AUC
-roc_bayes <- pROC::roc(rtss$is_goal, mean_probs)
-
-# plot
-plot(roc_bayes)
-
-pROC::auc(roc_bayes)
-
-
-#################
-
-
-# attach predicted probability of goal to the dataset
-pbp$xG <- stats::predict(xGmodel, pbp, type = "response")
-
-
-
-xG_pbp <- stats::predict(xGmodel, pbp, type = "response")
-y_pbp <- pbp$is_goal
-
-# receiver operating characteristic (ROC) curve for the test data
-roc_pbp <- pROC::roc(y_pbp, xG_pbp)
-
-# calculate area under curve
-auc_pbp <- pROC::auc(roc_pbp); cat("Test AUC:", round(roc_pbp, 2), "\n")
-
-
-
-
-
-
-
-
-#########
-
-
-
-
-
-# ── Feature engineering ──────────────────────────────────────────────────────
-shots_eh <- shots %>%
-  filter(period != 5) %>%                          # no shootouts
-  filter(homeEmptyNet == 0, awayEmptyNet == 0) %>% # no empty nets
-  filter(homeSkatersOnIce == awaySkatersOnIce) %>%  # even strength only
-  mutate(
-    # Score state from shooter's perspective, capped at ±3
-    score_diff_raw = ifelse(isHomeTeam == 1,
-                            homeTeamGoals - awayTeamGoals,
-                            awayTeamGoals - homeTeamGoals),
-    score_state = case_when(
-      score_diff_raw <= -3 ~ -3L,
-      score_diff_raw >= 3  ~  3L,
-      TRUE                 ~ as.integer(score_diff_raw)
-    ),
-    
-    # Shot type: collapse rare categories
-    shotType_clean = case_when(
-      shotType %in% c("WRIST", "SNAP", "SLAP", "BACK", "TIP", "WRAP", "DEFL") ~ shotType,
-      TRUE ~ "OTHER"
-    ),
-    shotType_int = as.integer(factor(shotType_clean)),
-    
-    # Last event category: collapse rare
-    lastEvent_clean = case_when(
-      lastEventCategory %in% c("FAC", "HIT", "SHOT", "BLOCK", "MISS", "GIVE", "TAKE") ~ lastEventCategory,
-      TRUE ~ "OTHER"
-    ),
-    lastEvent_int = as.integer(factor(lastEvent_clean))
-  )
-
-# ── Define features (EH feature set) ────────────────────────────────────────
-eh_features <- c(
-  "arenaAdjustedShotDistance",   # shot distance
-  "shotAngleAdjusted",           # shot angle
-  "time",                        # game seconds
-  "period",                      # period
-  "xCordAdjusted",               # shot x coord
-  "yCordAdjusted",               # shot y coord
-  "lastEventxCord_adjusted",     # last event x
-  "lastEventyCord_adjusted",     # last event y
-  "distanceFromLastEvent",       # distance from last event
-  "timeSinceLastEvent",          # seconds since last event
-  "shotRebound",                 # rebound flag
-  "shotRush",                    # rush flag
-  "score_state",                 # score differential (binned)
-  "isHomeTeam",                  # home/away
-  "shotType_int",                # shot type
-  "lastEvent_int"                # last event type
-)
-
-# ── Train/test split ─────────────────────────────────────────────────────────
-train <- shots_eh %>% filter(season %in% 2007:2014)
-test  <- shots_eh %>% filter(season == 2015)
-
-# ── Build DMatrix objects ────────────────────────────────────────────────────
-dtrain <- xgb.DMatrix(
-  data  = as.matrix(train[, eh_features]),
-  label = train$goal
-)
-dtest <- xgb.DMatrix(
-  data  = as.matrix(test[, eh_features]),
-  label = test$goal
-)
-
-# ── Hyperparameters (EH used modified random search / 5-fold CV) ─────────────
-params <- list(
-  objective        = "binary:logistic",
-  eval_metric      = "logloss",
-  eta              = 0.05,
-  max_depth        = 5,
-  subsample        = 0.8,
-  colsample_bytree = 0.8,
-  min_child_weight = 10
-)
-
-# ── Train with early stopping ────────────────────────────────────────────────
-set.seed(42)
-eh_model <- xgb.train(
-  params               = params,
-  data                 = dtrain,
-  nrounds              = 500,
-  watchlist            = list(train = dtrain, test = dtest),
-  early_stopping_rounds = 25,
-  verbose              = 1
-)
-
-# ── Predict and evaluate ─────────────────────────────────────────────────────
-test$xg_eh_es    <- predict(eh_model, dtest)               # your EH replication
-# Moneypuck's own xG on the same even-strength test shots
-# (already in the data as xGoal)
-
-roc_eh <- roc(test$goal, test$xg_eh_es)
-roc_mp <- roc(test$goal, test$xGoal)         # MP xG on ES shots only
-
-cat("EH replication AUC (ES):", round(auc(roc_eh), 3), "\n")
-cat("Moneypuck AUC (ES shots):", round(auc(roc_mp), 3), "\n")
-
-
-
-
+# close .R script 
